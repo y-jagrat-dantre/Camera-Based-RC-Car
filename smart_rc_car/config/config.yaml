@@ -44,7 +44,7 @@ receiver:
   channels:
     ch1_steering: 17   # CH1 — Steering
     ch2_throttle: 18   # CH2 — Throttle
-    ch3_mode:     27   # CH3 — Manual / Auto-Assist switch
+    ch3_mode:     25   # CH3 — Manual / Auto-Assist switch
     ch4_aux1:     null # CH4 — spare
     ch5_aux2:     null # CH5 — spare
     ch6_aux3:     null # CH6 — spare
