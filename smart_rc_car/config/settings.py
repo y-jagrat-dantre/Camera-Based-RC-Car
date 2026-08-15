@@ -15,8 +15,9 @@ import yaml
 
 
 # ── Root of the project (smart_rc_car/ parent) ─────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_FILE = PROJECT_ROOT / "smart_rc_car" / "config" / "config.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+CONFIG_FILE = Path(__file__).resolve().parent / "config.yaml"
+
 
 
 # ── Dataclasses ─────────────────────────────────────────────────────────────
