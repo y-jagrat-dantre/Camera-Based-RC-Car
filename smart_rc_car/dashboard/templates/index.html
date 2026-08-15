@@ -670,6 +670,23 @@
 
   socket.on('connect', () => addLog('WebSocket connected.'));
   socket.on('disconnect', () => addLog('WebSocket disconnected.'));
+
+  // ── Web Keyboard Controls ───────────────────────────────────────────────
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    const k = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd', ' ', 'm', 'q'].includes(k)) {
+      socket.emit('keydown', {key: k});
+    }
+  });
+
+  document.addEventListener('keyup', (e) => {
+    const k = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd', ' ', 'm', 'q'].includes(k)) {
+      socket.emit('keyup', {key: k});
+    }
+  });
+
 </script>
 </body>
 </html>

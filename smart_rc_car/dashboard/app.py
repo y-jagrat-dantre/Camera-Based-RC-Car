@@ -79,6 +79,7 @@ class DashboardServer:
         self._thread: threading.Thread | None = None
         self._running = False
         self._start_time = time.monotonic()
+        self.pressed_keys = set()
 
     def update(self, state: dict[str, Any]):
         """Update dashboard state (called from main loop, thread-safe)."""
@@ -158,6 +159,17 @@ class DashboardServer:
             return jsonify({"status": "rearmed"})
 
         # ── SocketIO telemetry push ─────────────────────────────────────────────
+
+        
+        @sio.on('keydown')
+        def handle_keydown(data):
+            k = data.get('key')
+            if k: self.pressed_keys.add(k)
+
+        @sio.on('keyup')
+        def handle_keyup(data):
+            k = data.get('key')
+            if k in self.pressed_keys: self.pressed_keys.remove(k)
 
         def telemetry_loop():
             while self._running:

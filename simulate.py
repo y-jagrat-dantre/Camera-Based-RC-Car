@@ -252,6 +252,9 @@ def main():
 
             key = cv2.waitKey(1) & 0xFF
             receiver.handle_cv2_key(key)
+            if dashboard:
+                for k in dashboard.pressed_keys:
+                    receiver.handle_cv2_key(ord(k) if k != ' ' else 32)
             if key == 27 or key == ord("q"):  # ESC or Q in OpenCV window
                 shutdown[0] = True
 
