@@ -12,8 +12,8 @@ Speed values are normalized floats:
    0.0 = stop
   -1.0 = full reverse
 
-The driver uses pigpio for hardware PWM on Pi 5 (required because
-RPi.GPIO is NOT compatible with Pi 5's RP1 GPIO controller).
+The driver uses lgpio for hardware PWM on Pi 5 (required because
+pigpio and RPi.GPIO are NOT compatible with Pi 5's RP1 GPIO controller).
 
 Standalone test:
     python -m smart_rc_car.motors.motor_driver
@@ -26,15 +26,29 @@ import time
 from typing import Optional
 
 try:
-    import pigpio
-    PIGPIO_AVAILABLE = True
+    import lgpio
+    LGPIO_AVAILABLE = True
 except ImportError:
-    PIGPIO_AVAILABLE = False
+    LGPIO_AVAILABLE = False
 
 from smart_rc_car.config.settings import CFG
 from smart_rc_car.safety.emergency_stop import ESTOP, StopReason
 
 log = logging.getLogger(__name__)
+
+
+def _get_gpiochip() -> int:
+    """Finds the correct GPIO chip. Pi 5 uses 4, Pi 4 uses 0."""
+    if not LGPIO_AVAILABLE:
+        return 0
+    for chip in (4, 0):
+        try:
+            h = lgpio.gpiochip_open(chip)
+            lgpio.gpiochip_close(h)
+            return chip
+        except Exception:
+            pass
+    return 0
 
 
 class MotorDriverBase(abc.ABC):
@@ -52,7 +66,7 @@ class MotorDriverBase(abc.ABC):
 
 class L298NDriver(MotorDriverBase):
     """
-    L298N dual H-bridge motor driver via pigpio.
+    L298N dual H-bridge motor driver via lgpio.
 
     Pin assignments are read from config.yaml.
 
@@ -63,8 +77,8 @@ class L298NDriver(MotorDriverBase):
     """
 
     def __init__(self, simulate: bool = False):
-        self._simulate = simulate or not PIGPIO_AVAILABLE
-        self._pi: Optional["pigpio.pi"] = None
+        self._simulate = simulate or not LGPIO_AVAILABLE
+        self._h = None
 
         cfg_m = CFG.motors
         self._pwm_freq   = cfg_m.pwm_frequency
@@ -93,50 +107,51 @@ class L298NDriver(MotorDriverBase):
         ESTOP.register_stop_callback(self.stop_all)
 
     def _connect(self):
-        self._pi = pigpio.pi()
-        if not self._pi.connected:
-            log.error("Cannot connect to pigpio daemon.")
+        try:
+            chip = _get_gpiochip()
+            self._h = lgpio.gpiochip_open(chip)
+        except Exception as e:
+            log.error(f"Cannot open gpiochip: {e}")
             self._simulate = True
             return
 
         # Set direction pins as outputs
         for pin in (self._in1, self._in2, self._in3, self._in4):
-            self._pi.set_mode(pin, pigpio.OUTPUT)
-            self._pi.write(pin, 0)
+            lgpio.gpio_claim_output(self._h, pin)
+            lgpio.gpio_write(self._h, pin, 0)
 
         # Set PWM pins
         for pin in (self._ena, self._enb):
-            self._pi.set_mode(pin, pigpio.OUTPUT)
-            self._pi.set_PWM_frequency(pin, self._pwm_freq)
-            self._pi.set_PWM_dutycycle(pin, 0)
+            lgpio.gpio_claim_output(self._h, pin)
+            lgpio.tx_pwm(self._h, pin, self._pwm_freq, 0.0)
 
-        log.info("L298N motor driver initialized.")
+        log.info(f"L298N motor driver initialized on gpiochip {chip}.")
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
-    def _duty(self, speed: float) -> int:
-        """Convert normalized speed [-1, +1] to pigpio dutycycle [0, 255]."""
+    def _duty(self, speed: float) -> float:
+        """Convert normalized speed [-1, +1] to lgpio dutycycle percent [0.0, 100.0]."""
         abs_speed = abs(speed)
         if abs_speed < 0.01:
-            return 0
-        # Map from [min_dc, max_dc] to [0, 255]
+            return 0.0
+        # Map from [min_dc, max_dc] to [0.0, 100.0]
         clamped = self._min_dc + abs_speed * (self._max_dc - self._min_dc)
         clamped = min(self._max_dc, clamped)
-        return int(clamped * 255)
+        return clamped * 100.0
 
     def _apply_motor(self, in_a: int, in_b: int, en: int, speed: float):
         if self._simulate:
             return
         if speed > 0.01:
-            self._pi.write(in_a, 1)
-            self._pi.write(in_b, 0)
+            lgpio.gpio_write(self._h, in_a, 1)
+            lgpio.gpio_write(self._h, in_b, 0)
         elif speed < -0.01:
-            self._pi.write(in_a, 0)
-            self._pi.write(in_b, 1)
+            lgpio.gpio_write(self._h, in_a, 0)
+            lgpio.gpio_write(self._h, in_b, 1)
         else:
-            self._pi.write(in_a, 0)
-            self._pi.write(in_b, 0)
-        self._pi.set_PWM_dutycycle(en, self._duty(speed))
+            lgpio.gpio_write(self._h, in_a, 0)
+            lgpio.gpio_write(self._h, in_b, 0)
+        lgpio.tx_pwm(self._h, en, self._pwm_freq, self._duty(speed))
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -171,17 +186,20 @@ class L298NDriver(MotorDriverBase):
         if self._simulate:
             log.debug("[SIM] Motors → STOP")
             return
-        if self._pi and self._pi.connected:
+        if self._h is not None:
             for pin in (self._in1, self._in2, self._in3, self._in4):
-                self._pi.write(pin, 0)
+                try: lgpio.gpio_write(self._h, pin, 0)
+                except: pass
             for pin in (self._ena, self._enb):
-                self._pi.set_PWM_dutycycle(pin, 0)
+                try: lgpio.tx_pwm(self._h, pin, self._pwm_freq, 0.0)
+                except: pass
 
     def shutdown(self):
-        """Stop motors and release pigpio resources."""
+        """Stop motors and release resources."""
         self.stop_all()
-        if self._pi and self._pi.connected:
-            self._pi.stop()
+        if self._h is not None:
+            lgpio.gpiochip_close(self._h)
+            self._h = None
         log.info("L298N driver shut down.")
 
     @property

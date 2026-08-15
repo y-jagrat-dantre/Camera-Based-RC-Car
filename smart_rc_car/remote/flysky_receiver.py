@@ -1,14 +1,14 @@
 """
 remote/flysky_receiver.py
 =========================
-Reads the FlySky FS-R6B receiver using individual PWM channels via pigpio.
+Reads the FlySky FS-R6B receiver using individual PWM channels via lgpio.
 
 The FS-R6B outputs standard servo PWM on each channel pin:
   • Pulse high = 1000–2000 µs
   • Period     ≈ 20 ms (50 Hz)
 
-pigpio's callback mechanism reads rising/falling edges with µs precision
-without busy-polling, which is crucial for real-time performance.
+lgpio's callback mechanism reads kernel-timestamped edges with ns precision
+without busy-polling, which is crucial for real-time performance on Pi 5.
 
 Usage:
     receiver = FlySkyReceiver()
@@ -27,10 +27,10 @@ import time
 from typing import Optional
 
 try:
-    import pigpio
-    PIGPIO_AVAILABLE = True
+    import lgpio
+    LGPIO_AVAILABLE = True
 except ImportError:
-    PIGPIO_AVAILABLE = False
+    LGPIO_AVAILABLE = False
 
 from smart_rc_car.config.settings import CFG
 from smart_rc_car.remote.channels import (
@@ -41,9 +41,22 @@ from smart_rc_car.remote.channels import (
 
 log = logging.getLogger(__name__)
 
+def _get_gpiochip() -> int:
+    """Finds the correct GPIO chip. Pi 5 uses 4, Pi 4 uses 0."""
+    if not LGPIO_AVAILABLE:
+        return 0
+    for chip in (4, 0):
+        try:
+            h = lgpio.gpiochip_open(chip)
+            lgpio.gpiochip_close(h)
+            return chip
+        except Exception:
+            pass
+    return 0
+
 # ── Simulated channel values for development on a non-Pi machine ─────────────
 class _SimulatedReceiver:
-    """Returns neutral values when pigpio is unavailable (dev machine)."""
+    """Returns neutral values when lgpio is unavailable (dev machine)."""
     def read(self) -> ChannelValues:
         return ChannelValues(steering=0.0, throttle=0.0,
                              mode_raw_us=1000, valid=True)
@@ -52,23 +65,26 @@ class _SimulatedReceiver:
 class _PwmCallback:
     """Tracks rising/falling edges on one GPIO to measure pulse width."""
 
-    def __init__(self, pi: "pigpio.pi", gpio: int):
-        self._pi     = pi
+    def __init__(self, h: int, gpio: int):
+        self._h      = h
         self._gpio   = gpio
-        self._tick   = 0      # µs timestamp of rising edge
+        self._tick   = 0      # ns timestamp of rising edge
         self._pulse  = 1500   # last measured pulse width µs (default center)
         self._last_t = time.monotonic()
         self._lock   = threading.Lock()
 
-        pi.set_mode(gpio, pigpio.INPUT)
-        self._cb = pi.callback(gpio, pigpio.EITHER_EDGE, self._edge)
+        lgpio.gpio_claim_alert(h, gpio, lgpio.BOTH_EDGES)
+        self._cb = lgpio.callback(h, gpio, lgpio.BOTH_EDGES, self._edge)
 
-    def _edge(self, gpio, level, tick):
+    def _edge(self, chip, gpio, level, tick):
         if level == 1:           # rising edge
             self._tick = tick
         elif level == 0:         # falling edge
             if self._tick:
-                pulse = pigpio.tickDiff(self._tick, tick)
+                pulse_ns = tick - self._tick
+                if pulse_ns < 0:
+                    pulse_ns += (1 << 64)
+                pulse = int(pulse_ns / 1000.0) # ns to µs
                 if is_valid_pwm(pulse):
                     with self._lock:
                         self._pulse  = pulse
@@ -99,13 +115,13 @@ class FlySkyReceiver:
     """
 
     def __init__(self):
-        self._pi: Optional["pigpio.pi"] = None
+        self._h = None
         self._callbacks: dict[str, _PwmCallback] = {}
         self._lock = threading.Lock()
         self._running = False
 
-        if not PIGPIO_AVAILABLE:
-            log.warning("pigpio not available — using simulated receiver.")
+        if not LGPIO_AVAILABLE:
+            log.warning("lgpio not available — using simulated receiver.")
             self._simulated = True
         else:
             self._simulated = False
@@ -113,13 +129,15 @@ class FlySkyReceiver:
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
     def start(self):
-        """Connect to pigpio daemon and register GPIO callbacks."""
+        """Connect to gpiochip and register GPIO callbacks."""
         if self._simulated:
             return
-        self._pi = pigpio.pi()
-        if not self._pi.connected:
-            log.error("Could not connect to pigpio daemon. "
-                      "Run: sudo pigpiod")
+            
+        try:
+            chip = _get_gpiochip()
+            self._h = lgpio.gpiochip_open(chip)
+        except Exception as e:
+            log.error(f"Could not open gpiochip: {e}")
             self._simulated = True
             return
 
@@ -132,19 +150,20 @@ class FlySkyReceiver:
 
         for name, gpio in pin_map.items():
             if gpio is not None:
-                self._callbacks[name] = _PwmCallback(self._pi, gpio)
-                log.info(f"Monitoring {name} on GPIO {gpio}")
+                self._callbacks[name] = _PwmCallback(self._h, gpio)
+                log.info(f"Monitoring {name} on GPIO {gpio} (chip {chip})")
 
         self._running = True
         log.info("FlySky receiver started.")
 
     def stop(self):
-        """Cancel callbacks and disconnect from pigpio."""
+        """Cancel callbacks and disconnect from lgpio."""
         self._running = False
         for cb in self._callbacks.values():
             cb.cancel()
-        if self._pi and self._pi.connected:
-            self._pi.stop()
+        if self._h is not None:
+            lgpio.gpiochip_close(self._h)
+            self._h = None
         log.info("FlySky receiver stopped.")
 
     # ── Read ─────────────────────────────────────────────────────────────────
