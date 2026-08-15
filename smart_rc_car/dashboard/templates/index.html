@@ -542,6 +542,11 @@
           ✓ RE-ARM
         </button>
       </div>
+      <div class="btn-row">
+        <button class="btn" style="background: rgba(79, 142, 247, 0.15); border: 1.5px solid var(--accent); color: var(--accent);" onclick="toggleAI()">
+          🤖 TOGGLE AI MODE
+        </button>
+      </div>
     </div>
   </div>
 
@@ -666,6 +671,12 @@
   async function rearm() {
     await fetch('/rearm', { method: 'POST' });
     addLog('✓ System re-armed from dashboard.');
+  }
+
+  function toggleAI() {
+    socket.emit('keydown', {key: 'm'});
+    setTimeout(() => socket.emit('keyup', {key: 'm'}), 100);
+    addLog('🤖 AI mode toggle requested from dashboard.');
   }
 
   socket.on('connect', () => addLog('WebSocket connected.'));
