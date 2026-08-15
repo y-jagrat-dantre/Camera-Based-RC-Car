@@ -251,6 +251,7 @@ def main():
             cv2.imshow("Smart RC Car — PC Simulator (press ESC to quit)", display)
 
             key = cv2.waitKey(1) & 0xFF
+            receiver.handle_cv2_key(key)
             if key == 27 or key == ord("q"):  # ESC or Q in OpenCV window
                 shutdown[0] = True
 

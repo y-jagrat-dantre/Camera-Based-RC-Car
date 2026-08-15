@@ -61,6 +61,7 @@ class KeyboardReceiver:
         self._running   = False
         self._listener  = None
         self._pressed: set[str] = set()
+        self._cv2_keys_last_seen = {}
 
         # Ramp update thread
         self._ramp_thread: threading.Thread | None = None
@@ -112,7 +113,34 @@ class KeyboardReceiver:
 
     # ── Key callbacks ─────────────────────────────────────────────────────────
 
+
+    def handle_cv2_key(self, key_code: int):
+        import time
+        if key_code == -1 or key_code == 255:
+            return
+        try:
+            k = chr(key_code).lower()
+        except ValueError:
+            return
+
+        with self._lock:
+            if k in ("w", "s", "a", "d", " ", "m", "q"):
+                # Handle toggles once per hold
+                if k == "m" and k not in self._pressed:
+                    self._mode_us = 2000 if self._mode_us == 1000 else 1000
+                    mode_name = "AUTO-ASSIST" if self._mode_us == 2000 else "MANUAL"
+                    log.info(f"Mode switched to: {mode_name}")
+                elif k == "q":
+                    log.warning("OpenCV ESC/Q — emergency stop!")
+                    self._estop = True
+                elif k == " ":
+                    self._brake = True
+                
+                self._pressed.add(k)
+                self._cv2_keys_last_seen[k] = time.monotonic()
+
     def _on_press(self, key):
+
         try:
             k = key.char.lower() if hasattr(key, "char") and key.char else None
         except AttributeError:
@@ -153,7 +181,19 @@ class KeyboardReceiver:
         while self._running:
             time.sleep(dt)
             with self._lock:
+                now = time.monotonic()
+                expired = []
+                for k, t in self._cv2_keys_last_seen.items():
+                    if now - t > 0.15:
+                        expired.append(k)
+                for k in expired:
+                    self._pressed.discard(k)
+                    del self._cv2_keys_last_seen[k]
+                    if k == " ":
+                        self._brake = False
+
                 pressed = set(self._pressed)
+
 
             # Throttle
             if "w" in pressed:
