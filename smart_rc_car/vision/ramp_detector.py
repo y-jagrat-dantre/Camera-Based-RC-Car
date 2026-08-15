@@ -84,8 +84,8 @@ class RampDetector:
         ramp_angles: list[float] = []
 
         if lines is not None:
-            for line in lines:
-                x1l, y1l, x2l, y2l = line[0]
+            lines = lines.reshape(-1, 4)
+            for x1l, y1l, x2l, y2l in lines:
                 dx = x2l - x1l
                 dy = y2l - y1l
                 if abs(dx) < 5:
