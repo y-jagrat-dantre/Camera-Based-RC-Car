@@ -15,18 +15,12 @@ sudo apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
     python3-opencv \
-    pigpio \
-    python3-pigpio \
-    libatlas-base-dev \
     libopenblas-dev \
     libcamera-tools \
     git
 
 # ── 2. Enable & start pigpio daemon ───────────────────────────────────────────
-echo "[2/6] Setting up pigpio daemon..."
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
-echo "  pigpiod status: $(systemctl is-active pigpiod)"
+echo "[2/6] Skipping pigpio daemon setup (not supported on Pi 5)..."
 
 # ── 3. Python virtual environment ────────────────────────────────────────────
 echo "[3/6] Creating Python virtual environment..."
@@ -49,8 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cat > /tmp/rc_car.service << EOF
 [Unit]
 Description=Smart RC Car
-After=network.target pigpiod.service
-Requires=pigpiod.service
+After=network.target
 
 [Service]
 Type=simple
