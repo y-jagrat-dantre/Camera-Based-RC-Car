@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Smart RC Car — Dashboard</title>
+  <meta name="description" content="Live monitoring dashboard for the camera-assisted AI RC car system."/>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+
+  <!-- Socket.IO -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <style>
+    :root {
+      --bg:         #0b0d13;
+      --surface:    #13161f;
+      --surface2:   #1c2030;
+      --border:     #252a3a;
+      --accent:     #4f8ef7;
+      --accent2:    #6c5ce7;
+      --green:      #00d68f;
+      --orange:     #f59e0b;
+      --red:        #ef4444;
+      --text:       #e2e8f0;
+      --muted:      #64748b;
+      --font:       'Outfit', sans-serif;
+      --mono:       'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      width: 100%;
+      background: linear-gradient(135deg, #0f1420 0%, #1a1f35 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    .logo {
+      width: 42px; height: 42px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    .uptime {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    /* ── Main grid ───────────────────────────────────────────────────────── */
+    main {
+      width: 100%;
+      max-width: 1400px;
+      padding: 1.5rem;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      grid-template-rows: auto auto;
+      gap: 1.25rem;
+    }
+
+    /* ── Card ────────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.25rem 1.5rem;
+      transition: border-color 0.3s;
+    }
+
+    .card:hover { border-color: #333a55; }
+
+    .card-title {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+
+    /* ── Mode badge ──────────────────────────────────────────────────────── */
+    #mode-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1.2rem;
+      border-radius: 50px;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: all 0.4s;
+      margin-bottom: 1rem;
+    }
+
+    #mode-badge.manual {
+      background: rgba(100, 116, 139, 0.15);
+      border: 1.5px solid var(--muted);
+      color: var(--muted);
+    }
+
+    #mode-badge.auto {
+      background: rgba(79, 142, 247, 0.15);
+      border: 1.5px solid var(--accent);
+      color: var(--accent);
+    }
+
+    #mode-badge .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.7); }
+    }
+
+    /* ── Status row ──────────────────────────────────────────────────────── */
+    .status-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .status-item {
+      background: var(--surface2);
+      border-radius: 10px;
+      padding: 0.7rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .status-item .label {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      flex: 1;
+    }
+
+    .status-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .status-dot.disconnected { background: var(--red); }
+    .status-dot.running { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .status-dot.stopped { background: var(--muted); }
+
+    /* ── Zone panel ──────────────────────────────────────────────────────── */
+    .zone-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+    }
+
+    .zone {
+      border-radius: 10px;
+      padding: 0.8rem 0.5rem;
+      text-align: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      transition: all 0.3s;
+      border: 1.5px solid transparent;
+    }
+
+    .zone-label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      display: block;
+      margin-top: 0.25rem;
+      font-weight: 400;
+    }
+
+    .zone.clear {
+      background: rgba(0, 214, 143, 0.12);
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    .zone.partial {
+      background: rgba(245, 158, 11, 0.12);
+      border-color: var(--orange);
+      color: var(--orange);
+    }
+
+    .zone.blocked {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: var(--red);
+      color: var(--red);
+      animation: blink 0.8s infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0.55; }
+    }
+
+    /* ── AI action label ─────────────────────────────────────────────────── */
+    #ai-action {
+      background: var(--surface2);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.04em;
+      min-height: 2.8rem;
+      display: flex;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      transition: all 0.3s;
+    }
+
+    #ai-action.override {
+      border-color: var(--orange);
+      color: var(--orange);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    #ai-action.estop {
+      border-color: var(--red);
+      color: var(--red);
+      background: rgba(239, 68, 68, 0.1);
+      animation: blink 0.5s infinite;
+    }
+
+    /* ── Telemetry bars ──────────────────────────────────────────────────── */
+    .telem-row {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    .telem-label {
+      color: var(--muted);
+      width: 70px;
+      flex-shrink: 0;
+    }
+
+    .telem-bar-bg {
+      flex: 1;
+      height: 6px;
+      background: var(--surface2);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .telem-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 3px;
+      transition: width 0.1s;
+      width: 50%;
+    }
+
+    .telem-val {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text);
+      width: 45px;
+      text-align: right;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────────────────── */
+    .btn-row { display: flex; gap: 0.75rem; margin-top: 0.75rem; }
+
+    .btn {
+      flex: 1;
+      padding: 0.65rem;
+      border: none;
+      border-radius: 9px;
+      font-family: var(--font);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: all 0.2s;
+    }
+
+    .btn-stop {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1.5px solid var(--red);
+      color: var(--red);
+    }
+    .btn-stop:hover { background: rgba(239, 68, 68, 0.3); }
+    .btn-stop:active { transform: scale(0.96); }
+
+    .btn-rearm {
+      background: rgba(0, 214, 143, 0.12);
+      border: 1.5px solid var(--green);
+      color: var(--green);
+    }
+    .btn-rearm:hover { background: rgba(0, 214, 143, 0.25); }
+    .btn-rearm:active { transform: scale(0.96); }
+
+    /* ── Camera feed ─────────────────────────────────────────────────────── */
+    .camera-card {
+      grid-row: 1 / 3;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .camera-wrap {
+      flex: 1;
+      position: relative;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #000;
+      min-height: 300px;
+    }
+
+    #camera-feed {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      border-radius: 10px;
+    }
+
+    .camera-overlay {
+      position: absolute;
+      top: 10px; left: 10px;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(4px);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--green);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── E-stop banner ───────────────────────────────────────────────────── */
+    #estop-banner {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      background: var(--red);
+      color: white;
+      text-align: center;
+      padding: 0.5rem;
+      font-weight: 700;
+      font-size: 0.9rem;
+      letter-spacing: 0.08em;
+      z-index: 100;
+      animation: blink 0.5s infinite;
+    }
+
+    /* ── Distance chip ───────────────────────────────────────────────────── */
+    #distance-chip {
+      display: inline-block;
+      margin-top: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      background: var(--surface2);
+      border-radius: 50px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--text);
+    }
+
+    /* ── Ramp chip ───────────────────────────────────────────────────────── */
+    #ramp-chip {
+      display: inline-block;
+      margin-left: 0.5rem;
+      padding: 0.35rem 0.85rem;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid var(--orange);
+      border-radius: 50px;
+      font-size: 0.72rem;
+      color: var(--orange);
+      font-weight: 600;
+      display: none;
+    }
+
+    /* ── Bottom section ──────────────────────────────────────────────────── */
+    .bottom-card {
+      grid-column: 1 / -1;
+    }
+
+    .log-area {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--muted);
+      height: 80px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 1rem;
+      }
+      .camera-card { grid-row: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="estop-banner">⚠ EMERGENCY STOP ACTIVE ⚠</div>
+
+<header>
+  <div class="logo">🚗</div>
+  <h1>Smart RC Car <span>AI Dashboard</span></h1>
+  <div class="uptime" id="uptime">Uptime: 00:00</div>
+</header>
+
+<main>
+  <!-- ── Left column: status + controls ─────────────────────────────────── -->
+  <div>
+    <!-- Mode -->
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">Operating Mode</div>
+      <div id="mode-badge" class="manual">
+        <span class="dot"></span>
+        <span id="mode-text">MANUAL</span>
+      </div>
+
+      <!-- Zone display -->
+      <div class="card-title" style="margin-top:.75rem">Driving Zones</div>
+      <div class="zone-row">
+        <div class="zone clear" id="zone-left">
+          ◀ LEFT<span class="zone-label" id="zone-left-label">CLEAR</span>
+        </div>
+        <div class="zone clear" id="zone-center">
+          ● CENTER<span class="zone-label" id="zone-center-label">CLEAR</span>
+        </div>
+        <div class="zone clear" id="zone-right">
+          RIGHT ▶<span class="zone-label" id="zone-right-label">CLEAR</span>
+        </div>
+      </div>
+
+      <!-- AI action -->
+      <div id="ai-action">⟳ WAITING FOR DATA</div>
+
+      <!-- Distance + ramp -->
+      <div>
+        <span id="distance-chip">📏 Dist: — m</span>
+        <span id="ramp-chip">⛰ RAMP DETECTED</span>
+      </div>
+    </div>
+
+    <!-- Status indicators -->
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">System Status</div>
+      <div class="status-grid">
+        <div class="status-item">
+          <div class="status-dot disconnected" id="dot-remote"></div>
+          <div class="label">Remote</div>
+          <div id="val-remote" style="font-size:.72rem;font-family:var(--mono)">—</div>
+        </div>
+        <div class="status-item">
+          <div class="status-dot disconnected" id="dot-camera"></div>
+          <div class="label">Camera</div>
+          <div id="val-camera" style="font-size:.72rem;font-family:var(--mono)">—</div>
+        </div>
+        <div class="status-item">
+          <div class="status-dot stopped" id="dot-ai"></div>
+          <div class="label">AI Vision</div>
+          <div id="val-ai" style="font-size:.72rem;font-family:var(--mono)">—</div>
+        </div>
+        <div class="status-item">
+          <div class="status-dot stopped" id="dot-estop"></div>
+          <div class="label">Safety</div>
+          <div id="val-estop" style="font-size:.72rem;font-family:var(--mono)">OK</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Telemetry -->
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">Telemetry</div>
+      <div class="telem-row">
+        <div class="telem-label">Throttle</div>
+        <div class="telem-bar-bg"><div class="telem-bar" id="bar-throttle" style="width:50%"></div></div>
+        <div class="telem-val" id="val-throttle">0.00</div>
+      </div>
+      <div class="telem-row">
+        <div class="telem-label">Steering</div>
+        <div class="telem-bar-bg"><div class="telem-bar" id="bar-steering" style="width:50%"></div></div>
+        <div class="telem-val" id="val-steering">0.00</div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="card">
+      <div class="card-title">Controls</div>
+      <div class="btn-row">
+        <button class="btn btn-stop" id="btn-estop" onclick="triggerEStop()">
+          ⛔ EMERGENCY STOP
+        </button>
+        <button class="btn btn-rearm" id="btn-rearm" onclick="rearm()">
+          ✓ RE-ARM
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Camera feed ──────────────────────────────────────────────────────── -->
+  <div class="card camera-card">
+    <div class="card-title">Live Camera Feed — AI Annotated</div>
+    <div class="camera-wrap">
+      <img id="camera-feed" src="/video_feed" alt="Live camera feed"/>
+      <div class="camera-overlay" id="camera-overlay">● LIVE</div>
+    </div>
+  </div>
+
+  <!-- ── Event log (bottom) ───────────────────────────────────────────────── -->
+  <div class="card bottom-card">
+    <div class="card-title">Event Log</div>
+    <div class="log-area" id="log-area">
+      <div>Dashboard connected.</div>
+    </div>
+  </div>
+</main>
+
+<script>
+  const socket = io();
+  let lastAction = '';
+
+  function addLog(msg) {
+    const log = document.getElementById('log-area');
+    const d = new Date();
+    const ts = d.toLocaleTimeString('en-GB', {hour12:false});
+    const line = document.createElement('div');
+    line.textContent = `[${ts}] ${msg}`;
+    log.appendChild(line);
+    if (log.children.length > 50) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function setDot(id, className) {
+    document.getElementById(id).className = 'status-dot ' + className;
+  }
+
+  function setZone(id, status) {
+    const el = document.getElementById('zone-' + id);
+    const lbl = document.getElementById('zone-' + id + '-label');
+    el.className = 'zone ' + status.toLowerCase();
+    lbl.textContent = status;
+  }
+
+  function fmtThrottle(v) {
+    // Map -1…+1 to 0…100% bar
+    return ((v + 1) / 2 * 100).toFixed(0) + '%';
+  }
+
+  socket.on('telemetry', (data) => {
+    // Mode
+    const modeBadge = document.getElementById('mode-badge');
+    const modeText  = document.getElementById('mode-text');
+    const isAuto = data.mode === 'AUTO_ASSIST';
+    modeBadge.className = 'manual' + (isAuto ? ' auto' : ' manual');
+    modeText.textContent = isAuto ? 'AUTO-ASSIST' : 'MANUAL';
+
+    // Status dots
+    setDot('dot-remote', data.remote === 'CONNECTED' ? 'connected' : 'disconnected');
+    setDot('dot-camera', data.camera === 'CONNECTED' ? 'connected' : 'disconnected');
+    setDot('dot-ai', data.ai === 'RUNNING' ? 'running' : 'stopped');
+    setDot('dot-estop', data.estop ? 'disconnected' : 'connected');
+
+    document.getElementById('val-remote').textContent = data.remote;
+    document.getElementById('val-camera').textContent = data.camera;
+    document.getElementById('val-ai').textContent     = data.ai;
+    document.getElementById('val-estop').textContent  = data.estop
+      ? '⛔ ' + (data.estop_reason || 'STOP') : 'OK';
+
+    // Zones
+    setZone('left',   data.zone_left   || 'CLEAR');
+    setZone('center', data.zone_center || 'CLEAR');
+    setZone('right',  data.zone_right  || 'CLEAR');
+
+    // AI action
+    const aiEl = document.getElementById('ai-action');
+    const action = data.ai_action || '—';
+    aiEl.textContent = '⚡ ' + action;
+    const isOverride = action.includes('DODGE') || action.includes('STOP');
+    const isEstop    = data.estop;
+    aiEl.className = isEstop ? 'estop' : (isOverride ? 'override' : '');
+    if (action !== lastAction) { addLog('AI: ' + action); lastAction = action; }
+
+    // Distance
+    const distEl = document.getElementById('distance-chip');
+    if (data.distance_m !== null && data.distance_m < 9) {
+      distEl.textContent = '📏 ' + parseFloat(data.distance_m).toFixed(2) + ' m';
+    } else {
+      distEl.textContent = '📏 —';
+    }
+
+    // Ramp
+    document.getElementById('ramp-chip').style.display = data.ramp ? 'inline-block' : 'none';
+
+    // Telemetry bars
+    const thr = parseFloat(data.throttle) || 0;
+    const str = parseFloat(data.steering) || 0;
+    document.getElementById('bar-throttle').style.width = ((thr + 1) / 2 * 100) + '%';
+    document.getElementById('bar-steering').style.width  = ((str + 1) / 2 * 100) + '%';
+    document.getElementById('val-throttle').textContent = thr.toFixed(2);
+    document.getElementById('val-steering').textContent  = str.toFixed(2);
+
+    // Emergency stop banner
+    document.getElementById('estop-banner').style.display = data.estop ? 'block' : 'none';
+
+    // Uptime
+    const s = data.uptime_s || 0;
+    const h = String(Math.floor(s / 3600)).padStart(2, '0');
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const sec = String(s % 60).padStart(2, '0');
+    document.getElementById('uptime').textContent = `Uptime: ${h}:${m}:${sec}`;
+  });
+
+  async function triggerEStop() {
+    await fetch('/estop', { method: 'POST' });
+    addLog('⛔ Emergency stop triggered from dashboard.');
+  }
+
+  async function rearm() {
+    await fetch('/rearm', { method: 'POST' });
+    addLog('✓ System re-armed from dashboard.');
+  }
+
+  socket.on('connect', () => addLog('WebSocket connected.'));
+  socket.on('disconnect', () => addLog('WebSocket disconnected.'));
+</script>
+</body>
+</html>
