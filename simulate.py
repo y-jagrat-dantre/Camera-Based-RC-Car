@@ -251,10 +251,14 @@ def main():
             cv2.imshow("Smart RC Car — PC Simulator (press ESC to quit)", display)
 
             key = cv2.waitKey(1) & 0xFF
-            receiver.handle_cv2_key(key)
-            if dashboard:
-                for k in dashboard.pressed_keys:
-                    receiver.handle_cv2_key(ord(k) if k != ' ' else 32)
+            
+            # Safe call in case __pycache__ or site-packages holds an old version
+            if hasattr(receiver, "handle_cv2_key"):
+                receiver.handle_cv2_key(key)
+                if dashboard and hasattr(dashboard, "pressed_keys"):
+                    for k in dashboard.pressed_keys:
+                        receiver.handle_cv2_key(ord(k) if k != ' ' else 32)
+            
             if key == 27 or key == ord("q"):  # ESC or Q in OpenCV window
                 shutdown[0] = True
 
