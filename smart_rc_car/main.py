@@ -162,21 +162,27 @@ def main():
         channels = receiver.read()
 
         # ── Web Override ──────────────────────────────────────────────────────
-        if hasattr(dashboard, "pressed_keys") and dashboard.pressed_keys:
+        web_steering = 0.0
+        web_throttle = 0.0
+        web_active = False
+
+        if hasattr(dashboard, "pressed_keys"):
             m_pressed = 'm' in dashboard.pressed_keys
             if m_pressed and not last_m_pressed:
                 web_mode_active = not web_mode_active
             last_m_pressed = m_pressed
 
-            web_steering = 0.0
-            web_throttle = 0.0
-            if 'w' in dashboard.pressed_keys: web_throttle += 0.8
-            if 's' in dashboard.pressed_keys: web_throttle -= 0.8
-            if 'd' in dashboard.pressed_keys: web_steering += 1.0
-            if 'a' in dashboard.pressed_keys: web_steering -= 1.0
-            if ' ' in dashboard.pressed_keys: web_throttle = 0.0
-            if 'q' in dashboard.pressed_keys: ESTOP.trigger(StopReason.MANUAL_TRIGGER)
+            if dashboard.pressed_keys:
+                web_active = True
+                if 'w' in dashboard.pressed_keys: web_throttle += 0.8
+                if 's' in dashboard.pressed_keys: web_throttle -= 0.8
+                if 'd' in dashboard.pressed_keys: web_steering += 1.0
+                if 'a' in dashboard.pressed_keys: web_steering -= 1.0
+                if ' ' in dashboard.pressed_keys: web_throttle = 0.0
+                if 'q' in dashboard.pressed_keys: ESTOP.trigger(StopReason.MANUAL_TRIGGER)
 
+        # If physical remote is off, or if web keys are being actively pressed, override.
+        if (not channels.valid) or web_active:
             channels.valid = True
             channels.throttle = web_throttle
             channels.steering = web_steering
