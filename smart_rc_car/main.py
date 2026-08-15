@@ -133,6 +133,7 @@ def main():
     log.info("Waiting for receiver signal (up to 5s)...")
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
+        watchdog.kick()
         if receiver.read().valid:
             log.info("Receiver signal acquired.")
             break
@@ -144,6 +145,9 @@ def main():
     frame_count       = 0
     last_report       = None
     last_loop_time    = time.monotonic()
+    
+    web_mode_active = False
+    last_m_pressed  = False
 
     # ── MAIN CONTROL LOOP ─────────────────────────────────────────────────────
     while not shutdown_requested[0]:
@@ -156,6 +160,27 @@ def main():
 
         # ── Read receiver ─────────────────────────────────────────────────────
         channels = receiver.read()
+
+        # ── Web Override ──────────────────────────────────────────────────────
+        if hasattr(dashboard, "pressed_keys") and dashboard.pressed_keys:
+            m_pressed = 'm' in dashboard.pressed_keys
+            if m_pressed and not last_m_pressed:
+                web_mode_active = not web_mode_active
+            last_m_pressed = m_pressed
+
+            web_steering = 0.0
+            web_throttle = 0.0
+            if 'w' in dashboard.pressed_keys: web_throttle += 0.8
+            if 's' in dashboard.pressed_keys: web_throttle -= 0.8
+            if 'd' in dashboard.pressed_keys: web_steering += 1.0
+            if 'a' in dashboard.pressed_keys: web_steering -= 1.0
+            if ' ' in dashboard.pressed_keys: web_throttle = 0.0
+            if 'q' in dashboard.pressed_keys: ESTOP.trigger(StopReason.MANUAL_TRIGGER)
+
+            channels.valid = True
+            channels.throttle = web_throttle
+            channels.steering = web_steering
+            channels.mode_raw_us = 2000 if web_mode_active else 1000
 
         # ── Capture + process camera frame ───────────────────────────────────
         raw_frame = camera.read()

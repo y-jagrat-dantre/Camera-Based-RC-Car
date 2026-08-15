@@ -171,6 +171,10 @@ class DashboardServer:
             k = data.get('key')
             if k in self.pressed_keys: self.pressed_keys.remove(k)
 
+        @sio.on('disconnect')
+        def handle_disconnect():
+            self.pressed_keys.clear()
+
         def telemetry_loop():
             while self._running:
                 time.sleep(0.10)
